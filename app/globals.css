@@ -1,0 +1,24 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+}
+
+@keyframes flash-highlight {
+  0% { background-color: rgba(254, 240, 138, 0.8); }
+  100% { background-color: transparent; }
+}
+
+.row-flash {
+  animation: flash-highlight 0.8s ease-out;
+}

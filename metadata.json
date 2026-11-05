@@ -1,0 +1,6 @@
+{
+  "name": "Kampala Bistro POS & Restaurant Management System",
+  "description": "Enterprise restaurant point of sale, table manager, live kitchen display (KDS), inventory control, and fiscal billing system built for Group 3 (CSC 1102).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
