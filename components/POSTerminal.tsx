@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import { MenuItem, Order, OrderItem, Currency } from '@/types/restaurant';
-import { formatCurrency, VAT_RATE } from '@/lib/initialData';
+import { MenuItem, Order, Currency } from '@/types/restaurant';
+import { formatCurrency } from '@/lib/initialData';
 import { AnimatedTotal } from './AnimatedTotal';
 import { sound } from '@/lib/sound';
 import {
@@ -19,6 +19,9 @@ import {
   Flame,
   ArrowRight,
   Clock,
+  ChefHat,
+  Percent,
+  MessageSquarePlus,
 } from 'lucide-react';
 
 interface POSTerminalProps {
@@ -30,10 +33,13 @@ interface POSTerminalProps {
   setTableNumber: (table: number) => void;
   onSelectOrder: (order: Order | null) => void;
   onNewOrder: (tableNum: number) => void;
-  onAddItem: (item: MenuItem, quantity: number) => void;
+  onAddItem: (item: MenuItem, quantity: number, notes?: string) => void;
   onRemoveItem: (index: number) => void;
   onUpdateQuantity: (index: number, newQty: number) => void;
+  onApplyDiscount: (discountPercent: number) => void;
+  onSendToKitchen: () => void;
   onMarkServed: () => void;
+  onCancelOrder: () => void;
   onOpenPaymentModal: () => void;
   onOpenReceiptModal: () => void;
   flashingIndex: number | null;
@@ -51,7 +57,10 @@ export function POSTerminal({
   onAddItem,
   onRemoveItem,
   onUpdateQuantity,
+  onApplyDiscount,
+  onSendToKitchen,
   onMarkServed,
+  onCancelOrder,
   onOpenPaymentModal,
   onOpenReceiptModal,
   flashingIndex,
@@ -60,9 +69,16 @@ export function POSTerminal({
   const [searchQuery, setSearchQuery] = React.useState<string>('');
   const [selectedMenuItem, setSelectedMenuItem] = React.useState<MenuItem | null>(null);
   const [quantity, setQuantity] = React.useState<number>(1);
+  const [itemNote, setItemNote] = React.useState<string>('');
+  const [mounted, setMounted] = React.useState<boolean>(false);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
 
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const categories = ['All', 'Breakfast', 'Mains', 'Specials', 'Sides', 'Beverages', 'Desserts'];
+  const discountOptions = [0, 5, 10, 15];
 
   // Filtered menu
   const filteredMenu = React.useMemo(() => {
@@ -95,17 +111,12 @@ export function POSTerminal({
     );
   };
 
+  const canModifyOrder =
+    activeOrder?.status === 'OPEN' || activeOrder?.status === 'PREPARING';
+
   const handleAddSelected = (itemToAdd?: MenuItem) => {
     const target = itemToAdd || selectedMenuItem;
-    if (!activeOrder) {
-      sound.beep();
-      return;
-    }
-    if (activeOrder.status !== 'OPEN') {
-      sound.beep();
-      return;
-    }
-    if (!target) {
+    if (!activeOrder || !canModifyOrder || !target) {
       sound.beep();
       return;
     }
@@ -114,24 +125,33 @@ export function POSTerminal({
       return;
     }
 
-    onAddItem(target, quantity);
+    onAddItem(target, quantity, itemNote.trim() || undefined);
     sound.addItem();
     setQuantity(1);
+    setItemNote('');
   };
 
-  const isOpen = activeOrder?.status === 'OPEN';
   const hasItems = (activeOrder?.items.length ?? 0) > 0;
-  const isServed = activeOrder?.status === 'SERVED';
   const isPaid = activeOrder?.status === 'PAID';
+  const isCancelled = activeOrder?.status === 'CANCELLED';
+
+  const formattedOrderTime = React.useMemo(() => {
+    if (!activeOrder) return '';
+    if (!mounted) return '--:--';
+    return new Date(activeOrder.createdAt).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }, [activeOrder, mounted]);
 
   return (
     <div className="flex flex-col h-[calc(100vh-6.5rem)] max-w-[1700px] mx-auto p-4 md:p-6 gap-4">
       {/* Top Controls Strip: Table Spinner, Active Order Dropdown */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl px-5 py-3 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <label htmlFor="table-select" className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+          <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
             Table:
-          </label>
+          </span>
           <div className="flex items-center bg-slate-950 border border-slate-800 rounded-lg overflow-hidden">
             <button
               onClick={() => {
@@ -175,7 +195,10 @@ export function POSTerminal({
 
         {/* Active Order Selector */}
         <div className="flex items-center gap-3 flex-1 max-w-md justify-end">
-          <label htmlFor="order-selector" className="text-xs font-medium text-slate-400 uppercase tracking-wider whitespace-nowrap">
+          <label
+            htmlFor="order-selector"
+            className="text-xs font-medium text-slate-400 uppercase tracking-wider whitespace-nowrap"
+          >
             Active Order:
           </label>
           <select
@@ -190,7 +213,10 @@ export function POSTerminal({
           >
             <option value="">-- No Order Selected --</option>
             {orders.map((o) => {
-              const totalStr = formatCurrency(currency === 'UGX' ? o.totalUGX : o.totalUSD, currency);
+              const totalStr = formatCurrency(
+                currency === 'UGX' ? o.totalUGX : o.totalUSD,
+                currency
+              );
               return (
                 <option key={o.id} value={o.id}>
                   {o.orderNumber} (Table {o.tableNumber}) — [{o.status}] {totalStr}
@@ -223,6 +249,7 @@ export function POSTerminal({
                 <input
                   ref={searchInputRef}
                   type="text"
+                  aria-label="Search menu items"
                   placeholder="Search menu items or ingredients (Ctrl+F)..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -234,6 +261,7 @@ export function POSTerminal({
                       setSearchQuery('');
                       searchInputRef.current?.focus();
                     }}
+                    aria-label="Clear search query"
                     className="absolute right-2.5 top-2.5 text-slate-400 hover:text-white"
                   >
                     <X className="w-3.5 h-3.5" />
@@ -321,13 +349,14 @@ export function POSTerminal({
                     </span>
 
                     <button
-                      disabled={isOutOfStock || !isOpen}
+                      disabled={isOutOfStock || !canModifyOrder}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleAddSelected(item);
                       }}
+                      aria-label={`Add ${item.name} to order`}
                       className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-emerald-300 bg-emerald-950/60 border border-emerald-800/60 rounded-md hover:bg-emerald-900/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                      title={!isOpen ? 'Active order must be OPEN' : 'Add 1 to order'}
+                      title={!canModifyOrder ? 'Active order must be OPEN or PREPARING' : 'Add to order'}
                     >
                       <Plus className="w-3 h-3" />
                       <span>Add</span>
@@ -354,47 +383,68 @@ export function POSTerminal({
             )}
           </div>
 
-          {/* Quick Add Bar */}
-          <div className="p-3.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-slate-400">Quantity:</span>
-              <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
-                <button
-                  onClick={() => {
-                    if (quantity > 1) {
-                      sound.click();
-                      setQuantity(quantity - 1);
-                    }
-                  }}
-                  className="px-2.5 py-1 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                >
-                  <Minus className="w-3 h-3" />
-                </button>
-                <span className="w-8 text-center font-mono font-bold text-white text-xs tabular-nums">
-                  {quantity}
-                </span>
-                <button
-                  onClick={() => {
-                    if (quantity < 99) {
-                      sound.click();
-                      setQuantity(quantity + 1);
-                    }
-                  }}
-                  className="px-2.5 py-1 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                >
-                  <Plus className="w-3 h-3" />
-                </button>
+          {/* Quick Add & Kitchen Modifier Bar */}
+          <div className="p-3.5 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">Qty:</span>
+                <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => {
+                      if (quantity > 1) {
+                        sound.click();
+                        setQuantity(quantity - 1);
+                      }
+                    }}
+                    aria-label="Decrease selected dish quantity"
+                    className="px-2.5 py-1 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <span className="w-8 text-center font-mono font-bold text-white text-xs tabular-nums">
+                    {quantity}
+                  </span>
+                  <button
+                    onClick={() => {
+                      if (quantity < 99) {
+                        sound.click();
+                        setQuantity(quantity + 1);
+                      }
+                    }}
+                    aria-label="Increase selected dish quantity"
+                    className="px-2.5 py-1 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Kitchen Note / Modifier Input */}
+              <div className="relative flex-1 min-w-[180px] max-w-xs">
+                <MessageSquarePlus className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2" />
+                <input
+                  type="text"
+                  aria-label="Kitchen note or dietary modifier"
+                  value={itemNote}
+                  onChange={(e) => setItemNote(e.target.value)}
+                  placeholder="Kitchen note (e.g. No onions, Spicy)..."
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1 text-xs text-slate-100 placeholder-slate-500 focus:outline-hidden focus:border-blue-500"
+                />
               </div>
 
               {selectedMenuItem && (
-                <span className="text-xs text-slate-300 truncate max-w-xs hidden sm:inline">
+                <span className="text-xs text-slate-300 truncate max-w-[180px] hidden xl:inline">
                   Selected: <strong className="text-white">{selectedMenuItem.name}</strong>
                 </span>
               )}
             </div>
 
             <button
-              disabled={!isOpen || !selectedMenuItem || (selectedMenuItem?.stockQuantity ?? 0) < quantity}
+              disabled={
+                !canModifyOrder ||
+                !selectedMenuItem ||
+                (selectedMenuItem?.stockQuantity ?? 0) < quantity
+              }
               onClick={() => handleAddSelected()}
               className="px-4 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg transition-all shadow-xs flex items-center gap-1.5"
             >
@@ -407,7 +457,7 @@ export function POSTerminal({
         {/* Right Column (Order Details & Billing) - 5 cols */}
         <div className="lg:col-span-5 flex flex-col bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xs">
           {/* Order Header */}
-          <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+          <div className="p-4 border-b border-slate-800 flex items-center justify-between gap-2">
             {activeOrder ? (
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center font-mono font-bold text-blue-400 text-xs">
@@ -420,11 +470,13 @@ export function POSTerminal({
                       className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                         activeOrder.status === 'OPEN'
                           ? 'bg-blue-950 text-blue-400 border border-blue-800'
+                          : activeOrder.status === 'PREPARING'
+                          ? 'bg-purple-950 text-purple-300 border border-purple-800'
                           : activeOrder.status === 'SERVED'
                           ? 'bg-amber-950 text-amber-400 border border-amber-800'
                           : activeOrder.status === 'PAID'
                           ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                          : 'bg-slate-800 text-slate-400'
+                          : 'bg-rose-950 text-rose-400 border border-rose-800'
                       }`}
                     >
                       {activeOrder.status}
@@ -440,11 +492,33 @@ export function POSTerminal({
             )}
 
             {activeOrder && (
-              <div className="text-right text-xs text-slate-500 flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5" />
-                <span className="font-mono">
-                  {new Date(activeOrder.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
+              <div className="flex items-center gap-2">
+                {/* Discount Selector */}
+                {!isPaid && !isCancelled && (
+                  <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1">
+                    <Percent className="w-3 h-3 text-amber-400" />
+                    <select
+                      aria-label="Order discount percentage"
+                      value={activeOrder.discountPercent ?? 0}
+                      onChange={(e) => {
+                        sound.click();
+                        onApplyDiscount(Number(e.target.value));
+                      }}
+                      className="bg-transparent text-xs font-mono text-slate-200 focus:outline-hidden"
+                    >
+                      {discountOptions.map((pct) => (
+                        <option key={pct} value={pct} className="bg-slate-900">
+                          {pct === 0 ? 'No Disc' : `-${pct}% Off`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="text-right text-xs text-slate-500 flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span className="font-mono">{formattedOrderTime}</span>
+                </div>
               </div>
             )}
           </div>
@@ -477,19 +551,24 @@ export function POSTerminal({
                       >
                         <td className="py-3 px-4 text-slate-100 font-medium">
                           <div>{item.name}</div>
-                          {item.notes && <div className="text-[11px] text-slate-400">{item.notes}</div>}
+                          {item.notes && (
+                            <div className="text-[11px] text-amber-400/90 italic mt-0.5">
+                              Note: {item.notes}
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 px-2 text-right font-mono tabular-nums text-slate-300">
                           {formatCurrency(price, currency)}
                         </td>
                         <td className="py-3 px-3 text-center">
                           <div className="inline-flex items-center gap-1 bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5">
-                            {isOpen && (
+                            {canModifyOrder && (
                               <button
                                 onClick={() => {
                                   sound.click();
                                   onUpdateQuantity(idx, item.quantity - 1);
                                 }}
+                                aria-label={`Decrease quantity of ${item.name}`}
                                 className="text-slate-400 hover:text-white"
                               >
                                 <Minus className="w-2.5 h-2.5" />
@@ -498,12 +577,13 @@ export function POSTerminal({
                             <span className="w-5 text-center font-mono font-semibold text-white">
                               {item.quantity}
                             </span>
-                            {isOpen && (
+                            {canModifyOrder && (
                               <button
                                 onClick={() => {
                                   sound.click();
                                   onUpdateQuantity(idx, item.quantity + 1);
                                 }}
+                                aria-label={`Increase quantity of ${item.name}`}
                                 className="text-slate-400 hover:text-white"
                               >
                                 <Plus className="w-2.5 h-2.5" />
@@ -515,12 +595,13 @@ export function POSTerminal({
                           {formatCurrency(subtotal, currency)}
                         </td>
                         <td className="py-3 px-2 text-center">
-                          {isOpen && (
+                          {canModifyOrder && (
                             <button
                               onClick={() => {
                                 sound.click();
                                 onRemoveItem(idx);
                               }}
+                              aria-label={`Remove ${item.name} from order`}
                               className="text-slate-500 hover:text-rose-400 p-1 transition-colors"
                               title="Remove item"
                             >
@@ -558,59 +639,89 @@ export function POSTerminal({
 
           {/* Footer Totals & Action Buttons */}
           <div className="p-4 border-t border-slate-800 bg-slate-950 space-y-3">
+            {(activeOrder?.discountPercent ?? 0) > 0 && (
+              <div className="flex items-center justify-between text-xs text-amber-400 bg-amber-950/30 border border-amber-800/50 rounded-lg px-3 py-1.5">
+                <span>Discount Applied ({activeOrder?.discountPercent}%):</span>
+                <span className="font-mono font-bold">
+                  -
+                  {formatCurrency(
+                    currency === 'UGX'
+                      ? activeOrder?.discountUGX || 0
+                      : activeOrder?.discountUSD || 0,
+                    currency
+                  )}
+                </span>
+              </div>
+            )}
+
             <AnimatedTotal
-              total={currency === 'UGX' ? activeOrder?.totalUGX || 0 : activeOrder?.totalUSD || 0}
-              subtotal={currency === 'UGX' ? activeOrder?.subtotalUGX || 0 : activeOrder?.subtotalUSD || 0}
+              total={
+                currency === 'UGX' ? activeOrder?.totalUGX || 0 : activeOrder?.totalUSD || 0
+              }
+              subtotal={
+                currency === 'UGX'
+                  ? activeOrder?.subtotalUGX || 0
+                  : activeOrder?.subtotalUSD || 0
+              }
               tax={currency === 'UGX' ? activeOrder?.taxUGX || 0 : activeOrder?.taxUSD || 0}
               currency={currency}
             />
 
-            {/* Actions Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-              <button
-                disabled={!isOpen || !hasItems}
-                onClick={onMarkServed}
-                className="px-3 py-2 text-xs font-medium bg-amber-600 hover:bg-amber-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                title="Mark order as served"
-              >
-                <CheckCircle className="w-3.5 h-3.5" />
-                <span>Mark Served</span>
-              </button>
+            {/* Actions Grid: Primary Row + Secondary Row */}
+            <div className="space-y-2 pt-1">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  disabled={!canModifyOrder || !hasItems}
+                  onClick={onMarkServed}
+                  className="px-3 py-2.5 text-xs font-semibold bg-amber-600 hover:bg-amber-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap"
+                  title="Mark order as served"
+                >
+                  <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>Mark Served</span>
+                </button>
 
-              <button
-                disabled={!activeOrder || isPaid || !hasItems}
-                onClick={onOpenPaymentModal}
-                className="px-3 py-2 text-xs font-medium bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                title="Take customer payment"
-              >
-                <CreditCard className="w-3.5 h-3.5" />
-                <span>Payment</span>
-              </button>
+                <button
+                  disabled={!activeOrder || isPaid || isCancelled || !hasItems}
+                  onClick={onOpenPaymentModal}
+                  className="px-3 py-2.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap shadow-xs"
+                  title="Take customer payment"
+                >
+                  <CreditCard className="w-3.5 h-3.5 shrink-0" />
+                  <span>Payment</span>
+                </button>
+              </div>
 
-              <button
-                disabled={!activeOrder || !hasItems}
-                onClick={onOpenReceiptModal}
-                className="px-3 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 disabled:bg-slate-800/40 disabled:text-slate-600 text-slate-100 rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                title="Print fiscal receipt (Ctrl+P)"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print Bill</span>
-              </button>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  disabled={activeOrder?.status !== 'OPEN' || !hasItems}
+                  onClick={onSendToKitchen}
+                  className="px-2.5 py-2 text-xs font-medium bg-purple-600/90 hover:bg-purple-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap"
+                  title="Send order to Kitchen Display (Preparing)"
+                >
+                  <ChefHat className="w-3.5 h-3.5 shrink-0" />
+                  <span>Send Kitchen</span>
+                </button>
 
-              <button
-                disabled={!activeOrder || isPaid}
-                onClick={() => {
-                  if (activeOrder && confirm(`Are you sure you want to cancel Order ${activeOrder.orderNumber}?`)) {
-                    // Handled in parent
-                    sound.click();
-                  }
-                }}
-                className="px-3 py-2 text-xs font-medium bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/50 disabled:border-slate-800 disabled:bg-slate-800/40 disabled:text-slate-600 text-rose-300 rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                title="Cancel this order"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Cancel</span>
-              </button>
+                <button
+                  disabled={!activeOrder || !hasItems}
+                  onClick={onOpenReceiptModal}
+                  className="px-2.5 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 disabled:bg-slate-800/40 disabled:text-slate-600 text-slate-100 rounded-lg transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap"
+                  title="Print fiscal receipt (Ctrl+P)"
+                >
+                  <Printer className="w-3.5 h-3.5 shrink-0" />
+                  <span>Print Bill</span>
+                </button>
+
+                <button
+                  disabled={!activeOrder || isPaid || isCancelled}
+                  onClick={onCancelOrder}
+                  className="px-2.5 py-2 text-xs font-medium bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/50 disabled:border-slate-800 disabled:bg-slate-800/40 disabled:text-slate-600 text-rose-300 rounded-lg transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap"
+                  title="Cancel this order and restore stock"
+                >
+                  <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>Cancel Order</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

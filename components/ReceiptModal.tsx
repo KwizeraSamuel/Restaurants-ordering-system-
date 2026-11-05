@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Order, Currency } from '@/types/restaurant';
-import { formatCurrency, VAT_RATE } from '@/lib/initialData';
+import { formatCurrency } from '@/lib/initialData';
 import { sound } from '@/lib/sound';
 import { X, Printer, Download, Copy, Check, FileText } from 'lucide-react';
 
@@ -21,6 +21,8 @@ export function ReceiptModal({ order, currency, isOpen, onClose }: ReceiptModalP
   const total = currency === 'UGX' ? order.totalUGX : order.totalUSD;
   const subtotal = currency === 'UGX' ? order.subtotalUGX : order.subtotalUSD;
   const tax = currency === 'UGX' ? order.taxUGX : order.taxUSD;
+  const discount =
+    currency === 'UGX' ? order.discountUGX || 0 : order.discountUSD || 0;
 
   const receiptDate = new Date(order.paidAt || order.createdAt).toLocaleString('en-US', {
     year: 'numeric',
@@ -52,16 +54,31 @@ export function ReceiptModal({ order, currency, isOpen, onClose }: ReceiptModalP
     b += '----------------------------------------------------\n';
 
     order.items.forEach((oi) => {
-      const priceStr = formatCurrency(currency === 'UGX' ? oi.unitPriceUGX : oi.unitPriceUSD, currency).replace('UGX ', '');
-      const subtotalStr = formatCurrency(currency === 'UGX' ? oi.subtotalUGX : oi.subtotalUSD, currency).replace('UGX ', '');
+      const priceStr = formatCurrency(
+        currency === 'UGX' ? oi.unitPriceUGX : oi.unitPriceUSD,
+        currency
+      ).replace('UGX ', '');
+      const subtotalStr = formatCurrency(
+        currency === 'UGX' ? oi.subtotalUGX : oi.subtotalUSD,
+        currency
+      ).replace('UGX ', '');
       b += `${oi.name.slice(0, 22).padEnd(22)} ${String(oi.quantity).padStart(5)} ${priceStr.padStart(10)} ${subtotalStr.padStart(10)}\n`;
+      if (oi.notes) {
+        b += `  * Note: ${oi.notes}\n`;
+      }
     });
 
     b += '----------------------------------------------------\n';
     b += `Subtotal:                           ${formatCurrency(subtotal, currency).padStart(16)}\n`;
+    if ((order.discountPercent ?? 0) > 0) {
+      b += `Discount (${order.discountPercent}%):                      -${formatCurrency(discount, currency).padStart(15)}\n`;
+    }
     b += `VAT (18% included):                 ${formatCurrency(tax, currency).padStart(16)}\n`;
     b += '----------------------------------------------------\n';
     b += `TOTAL PAYABLE:                      ${formatCurrency(total, currency).padStart(16)}\n`;
+    if (order.paymentDetails?.splitCount && order.paymentDetails.splitCount > 1) {
+      b += `Split (${order.paymentDetails.splitCount} Guests):                   ${formatCurrency(order.paymentDetails.perPersonAmount || 0, currency).padStart(16)}/ea\n`;
+    }
     b += '====================================================\n';
     b += '         Thank you for dining with us!              \n';
     b += '      CSC 1102 Practical Exam Project - Group 3     \n';
@@ -108,6 +125,7 @@ export function ReceiptModal({ order, currency, isOpen, onClose }: ReceiptModalP
           </div>
           <button
             onClick={onClose}
+            aria-label="Close receipt modal"
             className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
           >
             <X className="w-4 h-4" />
@@ -170,14 +188,27 @@ export function ReceiptModal({ order, currency, isOpen, onClose }: ReceiptModalP
               </div>
 
               {order.items.map((oi, i) => {
-                const priceStr = formatCurrency(currency === 'UGX' ? oi.unitPriceUGX : oi.unitPriceUSD, currency);
-                const subStr = formatCurrency(currency === 'UGX' ? oi.subtotalUGX : oi.subtotalUSD, currency);
+                const priceStr = formatCurrency(
+                  currency === 'UGX' ? oi.unitPriceUGX : oi.unitPriceUSD,
+                  currency
+                );
+                const subStr = formatCurrency(
+                  currency === 'UGX' ? oi.subtotalUGX : oi.subtotalUSD,
+                  currency
+                );
                 return (
-                  <div key={i} className="flex justify-between py-0.5 text-[10px]">
-                    <span className="w-1/2 truncate font-medium">{oi.name}</span>
-                    <span className="w-12 text-center">{oi.quantity}</span>
-                    <span className="w-16 text-right">{priceStr.replace('UGX ', '')}</span>
-                    <span className="w-16 text-right font-semibold">{subStr.replace('UGX ', '')}</span>
+                  <div key={i} className="py-0.5 text-[10px]">
+                    <div className="flex justify-between">
+                      <span className="w-1/2 truncate font-medium">{oi.name}</span>
+                      <span className="w-12 text-center">{oi.quantity}</span>
+                      <span className="w-16 text-right">{priceStr.replace('UGX ', '')}</span>
+                      <span className="w-16 text-right font-semibold">{subStr.replace('UGX ', '')}</span>
+                    </div>
+                    {oi.notes && (
+                      <div className="text-[9px] text-slate-600 italic pl-2">
+                        * Note: {oi.notes}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -189,6 +220,12 @@ export function ReceiptModal({ order, currency, isOpen, onClose }: ReceiptModalP
                 <span>Subtotal:</span>
                 <span>{formatCurrency(subtotal, currency)}</span>
               </div>
+              {(order.discountPercent ?? 0) > 0 && (
+                <div className="flex justify-between text-amber-800 font-medium">
+                  <span>Discount ({order.discountPercent}%):</span>
+                  <span>-{formatCurrency(discount, currency)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-slate-700">
                 <span>VAT (18% included):</span>
                 <span>{formatCurrency(tax, currency)}</span>
@@ -197,6 +234,14 @@ export function ReceiptModal({ order, currency, isOpen, onClose }: ReceiptModalP
                 <span>TOTAL PAYABLE:</span>
                 <span>{formatCurrency(total, currency)}</span>
               </div>
+              {order.paymentDetails?.splitCount && order.paymentDetails.splitCount > 1 && (
+                <div className="flex justify-between text-[10px] text-slate-700 pt-0.5">
+                  <span>Split ({order.paymentDetails.splitCount} Guests):</span>
+                  <span className="font-semibold">
+                    {formatCurrency(order.paymentDetails.perPersonAmount || 0, currency)} / guest
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Simulated Barcode & Footer */}

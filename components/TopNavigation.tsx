@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Currency } from '@/types/restaurant';
-import { Volume2, VolumeX, Keyboard, Code2, Sparkles, DollarSign } from 'lucide-react';
+import { Volume2, VolumeX, Keyboard, Code2, RotateCcw } from 'lucide-react';
 import { sound } from '@/lib/sound';
 
 interface TopNavigationProps {
@@ -15,6 +15,7 @@ interface TopNavigationProps {
   onOpenShortcuts: () => void;
   onOpenJavaModal: () => void;
   onNewOrder: () => void;
+  onResetDemo: () => void;
   shiftRevenueFormatted: string;
   activeOrderCount: number;
 }
@@ -29,6 +30,7 @@ export function TopNavigation({
   onOpenShortcuts,
   onOpenJavaModal,
   onNewOrder,
+  onResetDemo,
   shiftRevenueFormatted,
   activeOrderCount,
 }: TopNavigationProps) {
@@ -160,7 +162,7 @@ export function TopNavigation({
 
       {/* Sub-toolbar: Operational context, Currency switcher, Sound, Group 3 Exam badge & Clock */}
       <div className="bg-slate-900 border-t border-slate-800/80 px-6 py-2 text-xs flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-4 text-slate-400">
+        <div className="flex flex-wrap items-center gap-3 text-slate-400">
           <span className="text-slate-200 font-medium">Group 3 • CSC 1102 Practical Exam</span>
           <span aria-hidden="true" className="text-slate-600">·</span>
           <button
@@ -168,7 +170,7 @@ export function TopNavigation({
             className="inline-flex items-center gap-1.5 text-blue-400 hover:text-blue-300 font-medium transition-colors"
           >
             <Code2 className="w-3.5 h-3.5" />
-            <span>Java Source Code & Team</span>
+            <span>Java Source Code, Rubric & Report</span>
           </button>
           <span aria-hidden="true" className="text-slate-600">·</span>
           <span className="text-slate-400">
@@ -179,7 +181,7 @@ export function TopNavigation({
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           {/* Mobile view switcher for small viewports */}
           <div className="flex lg:hidden items-center gap-1 bg-slate-800 p-0.5 rounded-md">
             <button
@@ -205,6 +207,22 @@ export function TopNavigation({
               }`}
             >
               Floor
+            </button>
+            <button
+              onClick={() => setActiveView('inventory')}
+              className={`px-2 py-1 rounded text-xs ${
+                activeView === 'inventory' ? 'bg-blue-600 text-white' : 'text-slate-300'
+              }`}
+            >
+              Stock
+            </button>
+            <button
+              onClick={() => setActiveView('analytics')}
+              className={`px-2 py-1 rounded text-xs ${
+                activeView === 'analytics' ? 'bg-blue-600 text-white' : 'text-slate-300'
+              }`}
+            >
+              Sales
             </button>
           </div>
 
@@ -238,18 +256,35 @@ export function TopNavigation({
             </button>
           </div>
 
+          {/* Reset Demo Data */}
+          <button
+            onClick={onResetDemo}
+            aria-label="Reset demo data"
+            className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors inline-flex items-center gap-1"
+            title="Reset orders and inventory to initial exam demo state"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+            <span className="hidden sm:inline">Reset Demo</span>
+          </button>
+
           {/* Sound Toggle */}
           <button
             onClick={toggleSound}
+            aria-label={soundEnabled ? 'Mute Audio' : 'Unmute Audio'}
             className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
             title={soundEnabled ? 'Mute Audio' : 'Unmute Audio'}
           >
-            {soundEnabled ? <Volume2 className="w-3.5 h-3.5 text-blue-400" /> : <VolumeX className="w-3.5 h-3.5 text-slate-500" />}
+            {soundEnabled ? (
+              <Volume2 className="w-3.5 h-3.5 text-blue-400" />
+            ) : (
+              <VolumeX className="w-3.5 h-3.5 text-slate-500" />
+            )}
           </button>
 
           {/* Keyboard Shortcuts Guide */}
           <button
             onClick={onOpenShortcuts}
+            aria-label="Keyboard Shortcuts"
             className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
             title="Keyboard Shortcuts"
           >

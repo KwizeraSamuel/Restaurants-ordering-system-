@@ -36,6 +36,8 @@ export interface PaymentDetails {
   cashTendered?: number;
   cashChange?: number;
   cardRef?: string;
+  splitCount?: number;
+  perPersonAmount?: number;
 }
 
 export interface Order {
@@ -50,6 +52,9 @@ export interface Order {
   servedAt?: string;
   paidAt?: string;
   paymentDetails?: PaymentDetails;
+  discountPercent?: number;
+  discountUGX?: number;
+  discountUSD?: number;
   totalUGX: number;
   totalUSD: number;
   subtotalUGX: number;

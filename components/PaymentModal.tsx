@@ -1,17 +1,18 @@
 'use client';
 
 import React from 'react';
-import { Order, Currency, PaymentMethod } from '@/types/restaurant';
+import { Order, Currency, PaymentMethod, PaymentDetails } from '@/types/restaurant';
 import { formatCurrency } from '@/lib/initialData';
+import { calculateSplitBill } from '@/lib/orderLogic';
 import { sound } from '@/lib/sound';
-import { X, Check, Smartphone, Banknote, CreditCard, ArrowRight, ShieldCheck } from 'lucide-react';
+import { X, Check, Smartphone, Banknote, CreditCard, ArrowRight, ShieldCheck, Users } from 'lucide-react';
 
 interface PaymentModalProps {
   order: Order | null;
   currency: Currency;
   isOpen: boolean;
   onClose: () => void;
-  onConfirmPayment: (method: PaymentMethod, details: any) => void;
+  onConfirmPayment: (method: PaymentMethod, details: PaymentDetails) => void;
 }
 
 export function PaymentModal(props: PaymentModalProps) {
@@ -37,9 +38,10 @@ function PaymentModalContent({
   order: Order;
   currency: Currency;
   onClose: () => void;
-  onConfirmPayment: (method: PaymentMethod, details: any) => void;
+  onConfirmPayment: (method: PaymentMethod, details: PaymentDetails) => void;
 }) {
   const [selectedMethod, setSelectedMethod] = React.useState<PaymentMethod>('CASH');
+  const [splitCount, setSplitCount] = React.useState<number>(1);
 
   // Cash state
   const totalDue = currency === 'UGX' ? order.totalUGX : order.totalUSD;
@@ -51,9 +53,9 @@ function PaymentModalContent({
   const [momoSimulating, setMomoSimulating] = React.useState<boolean>(false);
   const [momoApproved, setMomoApproved] = React.useState<boolean>(false);
 
-
   const changeDue = Math.max(0, tenderedAmount - totalDue);
   const isCashSufficient = tenderedAmount >= totalDue;
+  const perPersonAmount = calculateSplitBill(totalDue, splitCount, currency);
 
   const handleSimulateMoMo = () => {
     sound.click();
@@ -62,7 +64,7 @@ function PaymentModalContent({
       setMomoSimulating(false);
       setMomoApproved(true);
       sound.addItem();
-    }, 1200);
+    }, 1000);
   };
 
   const handleCompletePayment = () => {
@@ -71,25 +73,32 @@ function PaymentModalContent({
       return;
     }
 
-    let details: any = { method: selectedMethod };
+    let details: PaymentDetails = {
+      method: selectedMethod,
+      splitCount: splitCount > 1 ? splitCount : undefined,
+      perPersonAmount: splitCount > 1 ? perPersonAmount : undefined,
+    };
 
     if (selectedMethod === 'CASH') {
       details = {
+        ...details,
         method: 'CASH',
         cashTendered: tenderedAmount,
         cashChange: changeDue,
       };
     } else if (selectedMethod === 'MOBILE_MONEY') {
       details = {
+        ...details,
         method: 'MOBILE_MONEY',
         momoProvider,
         momoPhone,
-        momoRef: `${momoProvider}-TX-${Math.floor(100000 + Math.random() * 900000)}`,
+        momoRef: `${momoProvider}-TX-${100000 + (order.id * 137) % 899999}`,
       };
     } else {
       details = {
+        ...details,
         method: 'CREDIT_CARD',
-        cardRef: `VISA-AUTH-${Math.floor(1000 + Math.random() * 9000)}`,
+        cardRef: `VISA-AUTH-${1000 + (order.id * 73) % 8999}`,
       };
     }
 
@@ -98,8 +107,12 @@ function PaymentModalContent({
   };
 
   // Quick cash tender buttons
-  const ugxPresets = [totalDue, 10000, 20000, 50000, 100000].filter((v) => v >= totalDue);
-  const usdPresets = [totalDue, 10, 20, 50, 100].filter((v) => v >= totalDue);
+  const ugxPresets = [totalDue, 10000, 20000, 50000, 100000].filter(
+    (v, i, arr) => v >= totalDue && arr.indexOf(v) === i
+  );
+  const usdPresets = [totalDue, 10, 20, 50, 100].filter(
+    (v, i, arr) => v >= totalDue && arr.indexOf(v) === i
+  );
   const presets = currency === 'UGX' ? ugxPresets : usdPresets;
 
   return (
@@ -117,6 +130,7 @@ function PaymentModalContent({
           </div>
           <button
             onClick={onClose}
+            aria-label="Close payment modal"
             className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
           >
             <X className="w-4 h-4" />
@@ -124,17 +138,54 @@ function PaymentModalContent({
         </div>
 
         {/* Amount Banner */}
-        <div className="bg-slate-950 p-5 border-b border-slate-800 flex justify-between items-center">
-          <div>
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Total Amount Payable
-            </span>
-            <div className="text-xs text-slate-500 mt-0.5">
-              Includes 18% Standard VAT ({formatCurrency(currency === 'UGX' ? order.taxUGX : order.taxUSD, currency)})
+        <div className="bg-slate-950 p-5 border-b border-slate-800 space-y-3">
+          <div className="flex justify-between items-center">
+            <div>
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                Total Amount Payable
+              </span>
+              <div className="text-xs text-slate-500 mt-0.5">
+                Includes 18% Standard VAT (
+                {formatCurrency(currency === 'UGX' ? order.taxUGX : order.taxUSD, currency)})
+                {(order.discountPercent ?? 0) > 0 && ` • ${order.discountPercent}% Discount Applied`}
+              </div>
+            </div>
+            <div className="text-2xl font-bold font-mono text-emerald-400 tabular-nums">
+              {formatCurrency(totalDue, currency)}
             </div>
           </div>
-          <div className="text-2xl font-bold font-mono text-emerald-400 tabular-nums">
-            {formatCurrency(totalDue, currency)}
+
+          {/* Split Bill Calculator Strip */}
+          <div className="pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 text-slate-300">
+              <Users className="w-3.5 h-3.5 text-blue-400" />
+              <span>Split Bill by Guests:</span>
+              <div className="flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map((cnt) => (
+                  <button
+                    key={cnt}
+                    type="button"
+                    onClick={() => {
+                      sound.click();
+                      setSplitCount(cnt);
+                    }}
+                    className={`w-6 h-6 rounded font-mono font-bold text-xs transition-colors ${
+                      splitCount === cnt
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {cnt}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {splitCount > 1 && (
+              <div className="font-mono text-xs text-blue-300 bg-blue-950/50 border border-blue-800/60 px-2.5 py-1 rounded-md">
+                {formatCurrency(perPersonAmount, currency)} / person
+              </div>
+            )}
           </div>
         </div>
 
@@ -206,11 +257,13 @@ function PaymentModalContent({
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
+                    aria-label="Cash tendered amount"
                     value={tenderedAmount}
                     onChange={(e) => setTenderedAmount(Number(e.target.value))}
                     className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-hidden focus:border-emerald-500"
                   />
                   <button
+                    type="button"
                     onClick={() => setTenderedAmount(totalDue)}
                     className="px-3 py-2 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition-colors"
                   >
@@ -296,6 +349,7 @@ function PaymentModalContent({
                 </label>
                 <input
                   type="text"
+                  aria-label="Customer mobile money phone number"
                   value={momoPhone}
                   onChange={(e) => setMomoPhone(e.target.value)}
                   placeholder="07XX XXXXXX"
